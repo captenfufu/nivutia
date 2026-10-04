@@ -2,7 +2,7 @@
 
 אתר לימוד אינטראקטיבי בעברית (RTL) לצוערים בעולם קריאת המפה והניווט. אתר סטטי (HTML/CSS/JS ללא תלויות), מיועד ל-GitHub Pages, עם מצב יום/לילה ורספונסיביות מלאה לנייד.
 
-🌐 **אתר חי:** https://regaj.github.io/nivutia/
+🌐 **אתר חי:** https://captenfufu.github.io/nivutia/
 
 ## מה יש באתר
 
