@@ -30,6 +30,14 @@ js/app.js        כל הלוגיקה האינטראקטיבית + נתוני ה�
 assets/map_data.json   נתוני הצללית שנוצרו (לתיעוד)
 ```
 
+## גישה לאתר (GitHub Pages)
+
+לאחר הפעלת GitHub Pages במאגר (Settings → Pages → Source: `Deploy from a branch`, Branch: `main`, תיקייה `/ (root)`), האתר זמין בכתובת:
+
+https://captenfufu.github.io/nivutia/
+
+כל שינוי שנדחף ל-`main` מתעדכן באתר תוך כדקה-שתיים.
+
 ## הרצה מקומית
 
 ```bash
