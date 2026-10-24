@@ -145,3 +145,16 @@ a.brand { color: inherit; text-decoration: none; }
   .g-heading b { font-size: 1.35rem; }
   .g-mission-main { gap: 8px 16px; }
 }
+
+/* ---------- עזרי מבט ואזימוט ---------- */
+.g-viewbar { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; font-size: 0.86rem; }
+.g-opt { display: flex; gap: 5px; align-items: center; color: var(--text-soft); font-weight: 600; cursor: pointer; }
+.g-opt input { accent-color: var(--olive-600); }
+.g-bear { flex: 1 1 100%; color: var(--heading); }
+.g-bear b { color: #7a1fa0; font-size: 1.05rem; }
+html[data-theme="dark"] .g-bear b { color: #c88be0; }
+.g-view-wrap canvas { cursor: crosshair; }
+.g-ruler b { color: #7a1fa0; }
+html[data-theme="dark"] .g-ruler b { color: #c88be0; }
+.g-ruler .gbtn { margin-inline-start: 6px; }
+@media (max-width: 980px) { .g-viewbar { order: 1; } }

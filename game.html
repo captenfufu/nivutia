@@ -47,9 +47,9 @@
       <div class="card">
         <h3 class="g-h3">2. בחרו רמה</h3>
         <div class="g-levels" id="levelList">
-          <label class="g-level"><input type="radio" name="lvl" value="easy"><span><b>טירון</b> — היעד מסומן על המפה, נ״צ של הסמן מוצג, סרגל ומד־זווית מראים אזימוט רשת ומגנטי, ומונה המרחק במטרים.</span></label>
-          <label class="g-level"><input type="radio" name="lvl" value="mid" checked><span><b>לוחם</b> — דוקרים את היעד בעצמכם לפי הנ״צ. הסרגל מראה רק אזימוט רשת (את ההמרה למגנטי עושים לבד). סופרים צמדי צעדים, בלי מטרים.</span></label>
-          <label class="g-level"><input type="radio" name="lvl" value="hard"><span><b>מנווט מוביל</b> — בלי סרגל: מחשבים אזימוט ומרחק מהנ״צ. סופרים צעדים, ויש סטייה קטנה ובלתי מורגשת בהליכה, כמו בשטח אמיתי.</span></label>
+          <label class="g-level"><input type="radio" name="lvl" value="easy"><span><b>טירון</b> — היעד מסומן על המפה, נ״צ של הסמן מוצג, מד־הזווית מראה אזימוט רשת ומגנטי ומכוון את המצפן בלחיצה, ומונה המרחק במטרים. קווי גובה ונקודות גובה מוצגים בשטח.</span></label>
+          <label class="g-level"><input type="radio" name="lvl" value="mid" checked><span><b>לוחם</b> — דוקרים את היעד בעצמכם לפי הנ״צ. מד־הזווית מראה רק אזימוט רשת (את ההמרה למגנטי עושים לבד). סופרים צמדי צעדים, בלי מטרים.</span></label>
+          <label class="g-level"><input type="radio" name="lvl" value="hard"><span><b>מנווט מוביל</b> — כמו לוחם, בלי עזרי שטח מופעלים מראש, ויש סטייה קטנה ובלתי מורגשת בהליכה, כמו בשטח אמיתי.</span></label>
         </div>
         <button class="btn g-start" id="startBtn" disabled>🧭 צאו לניווט</button>
         <p class="small" id="bestLine"></p>
@@ -60,10 +60,11 @@
       <h3 class="g-h3">איך משחקים — הנוהל</h3>
       <ol class="g-steps">
         <li><b>דקירת היעד:</b> מוצאים על המפה את קווי הרשת לפי ה־נ״צ (קודם מזרחית, אחר כך צפונית) ולוחצים על הנקודה.</li>
+        <li><b>מד־זווית:</b> בוחרים 📐 וגוררים על המפה מהמוצא אל היעד. עיגול המעלות מיושר לצפון הרשת, והקו נצמד לנקודות מסומנות ולנקודות גובה.</li>
         <li><b>חישוב אזימוט ומרחק:</b> ΔE = מזרחית יעד − מזרחית מוצא, ΔN = צפונית יעד − צפונית מוצא. אזימוט רשת = atan2(ΔE, ΔN). למצפן: <b>מגנטי = רשת − 4.9°</b>. מרחק = √(ΔE² + ΔN²).</li>
         <li><b>הצפנת מפה:</b> מסובבים את המפה (⟲ ⟳) עד שהצפון שלה מצביע לאותו כיוון כמו מחט המצפן בשטח. אפשר לנעול את ההצפנה, והמפה תסתובב איתכם.</li>
         <li><b>הליכה:</b> מכוונים את המצפן לאזימוט (הקלדה או סיבוב) והולכים. ב־100 מ׳ במישור יש כ־67 צמדי צעדים, ובעלייה ובירידה יותר.</li>
-        <li><b>התמצאות:</b> מצליבים בין מה שרואים (גבעות, ערוצים, אוכפים, יערות) לבין המפה. אפשר לקחת אזימוט לפסגה בולטת ולסמן ✏️ איפה אתם חושבים שאתם.</li>
+        <li><b>התמצאות:</b> מצליבים בין מה שרואים (גבעות, ערוצים, אוכפים, חורש) לבין המפה. מעבירים את העכבר על השטח כדי לראות אזימוט, ולוחצים על פסגה כדי לקחת אליה אזימוט. אחר כך "📍 שרטוט קו חוזר" ולחיצה על אותה פסגה במפה. שני קווים חוזרים נחתכים במקום שבו אתם נמצאים (חיתוך לאחור). מסמנים ✏️.</li>
         <li><b>סיום:</b> לוחצים 🏁 "הגעתי" ודוקרים על המפה את המיקום שלכם. מקבלים ציון: מרחק מהיעד, דיוק הדקירה, ויעילות הדרך לעומת הציר האידיאלי.</li>
       </ol>
       <p class="small"><b>מקשים:</b> <span class="kbd">←</span> <span class="kbd">→</span> סיבוב (עם Shift: 10°) · <span class="kbd">↑</span> / <span class="kbd">W</span> הליכה רציפה · <span class="kbd">G</span> מיקוד המפה בנקודת ההתחלה.</p>
@@ -90,6 +91,12 @@
       <div class="g-field">
         <div class="g-view-wrap"><canvas id="viewCv" aria-label="מבט על השטח"></canvas>
           <div class="g-view-tag" id="viewTag">מבט בשטח</div>
+        </div>
+        <div class="g-viewbar">
+          <label class="g-opt"><input type="checkbox" id="optContours"> קווי גובה בשטח</label>
+          <label class="g-opt"><input type="checkbox" id="optPeaks"> נקודות גובה בשטח</label>
+          <div class="g-bear" id="bearOut"></div>
+          <button class="gbtn tiny hidden" id="backBtn">📍 שרטוט קו חוזר במפה</button>
         </div>
 
         <div class="g-ctrl card">
@@ -143,7 +150,7 @@
         <div class="g-tools" id="mapTools">
           <button class="gbtn tool on" data-tool="pan" title="גרירה והזזת המפה">✋ הזזה</button>
           <button class="gbtn tool" data-tool="dot" id="toolDot" title="דקירת נקודת היעד לפי הנ״צ">📍 דקירת יעד</button>
-          <button class="gbtn tool" data-tool="ruler" id="toolRuler" title="סרגל ומד־זווית: שתי לחיצות">📐 סרגל</button>
+          <button class="gbtn tool" data-tool="ruler" id="toolRuler" title="מד־זווית: גוררים מנקודה לנקודה (או שתי לחיצות)">📐 מד־זווית</button>
           <button class="gbtn tool" data-tool="mark" title="סימון מיקום משוער">✏️ סימון</button>
           <button class="gbtn" id="clearMarks" title="מחיקת הסימונים והסרגל">🧹</button>
         </div>
@@ -162,6 +169,7 @@
         <div class="g-mapinfo">
           <div id="orientOut" class="g-orient">המפה לא מוצפנת</div>
           <label class="g-lock"><input type="checkbox" id="orientLock"> נעילת הצפנה (המפה מסתובבת איתי)</label>
+          <label class="g-lock"><input type="checkbox" id="strongShade"> הצללת תבליט מודגשת</label>
           <div id="cursorOut" class="small"></div>
           <div id="rulerOut" class="g-ruler"></div>
         </div>

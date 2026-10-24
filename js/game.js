@@ -28,7 +28,7 @@ const MPX = 0.2;       // פיקסלים למטר בבסיס המפה (5 מ׳ ל
 const LEVELS = {
   easy: { name: 'טירון', targetShown: true, cursorNZ: true, ruler: 'full', meters: true, drift: false, distRange: [1100, 1900] },
   mid:  { name: 'לוחם', targetShown: false, cursorNZ: false, ruler: 'grid', meters: false, drift: false, distRange: [1500, 2500] },
-  hard: { name: 'מנווט מוביל', targetShown: false, cursorNZ: false, ruler: null, meters: false, drift: true, distRange: [1900, 3100] },
+  hard: { name: 'מנווט מוביל', targetShown: false, cursorNZ: false, ruler: 'grid', meters: false, drift: true, distRange: [1900, 3100] },
 };
 
 // מהירות הליכה לפי שיפוע (Tobler), במ׳ לשנייה
@@ -83,7 +83,13 @@ async function loadTerrain(meta) {
     slope[k] = Math.atan(Math.hypot(dzx, dzy));
     veg[k] = (vegIndex(e0 + i * cell, n0 + j * cell) > th && slope[k] < 0.6) ? 1 : 0;
   }
-  T = { meta, h, shade, slope, veg, nx, ny, cell, e0, n0, nTop: n0 + (ny - 1) * cell, size: (nx - 1) * cell };
+  // מסכת ערוצים (לצביעת אפיקים במבט בשטח)
+  const wet = new Float32Array(nx * ny);
+  for (const ln of meta.streams) {
+    const w = clamp(0.35 + 0.25 * Math.log10(ln[0] / 120), 0.35, 1);
+    for (let q = 1; q + 1 < ln.length; q += 2) { const k = ln[q + 1] * nx + ln[q]; if (w > wet[k]) wet[k] = w; }
+  }
+  T = { meta, h, shade, slope, veg, wet, nx, ny, cell, e0, n0, nTop: n0 + (ny - 1) * cell, size: (nx - 1) * cell };
 }
 
 // גובה (אינטרפולציה בילינארית) בנקודת ITM
@@ -178,6 +184,7 @@ function evalPath(pts) {
    3. בסיס המפה הטופוגרפית (נבנה פעם אחת לכל גזרה)
    ======================================================================= */
 let mapBase = null;
+const MAPOPT = { strong: false };   // הצללת תבליט מודגשת
 const bx = E => (E - T.e0) * MPX, by = N => (T.nTop - N) * MPX;
 
 function buildMapBase() {
@@ -193,7 +200,7 @@ function buildMapBase() {
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const k = j * nx + i, p = ((ny - 1 - j) * nx + i) * 4;
     let c = veg[k] ? [207, 227, 180] : paper;
-    const m = 0.8 + 0.26 * shade[k];
+    const m = MAPOPT.strong ? 0.48 + 0.7 * shade[k] : 0.8 + 0.26 * shade[k];
     img.data[p] = clamp(c[0] * m, 0, 255); img.data[p + 1] = clamp(c[1] * m, 0, 255); img.data[p + 2] = clamp(c[2] * m, 0, 255); img.data[p + 3] = 255;
   }
   sctx.putImageData(img, 0, 0);
@@ -304,6 +311,7 @@ const G = {
   paces: 0, legPaces: 0, walked: 0, time: 0, path: [], ideal: null,
   targetKnown: false, dotTries: 0, dotErr: null,
   marks: [], ruler: [], gps: 0, gpsUntil: 0, guess: null,
+  bearings: [], backLines: [], pendingBearing: null,
   phase: 'idle',  // idle | dot | nav | final | done
   done: {}, tool: 'pan', oriented: false, everOriented: false,
 };
@@ -349,6 +357,7 @@ function newMission() {
     paces: 0, legPaces: 0, walked: 0, time: 0, path: [{ E: s.E, N: s.N }], ideal: route,
     targetKnown: G.lv.targetShown, dotTries: 0, dotErr: null, dotMiss: null,
     marks: [], ruler: [], gps: 0, gpsUntil: 0, guess: null,
+    bearings: [], backLines: [], pendingBearing: null,
     phase: G.lv.targetShown ? 'nav' : 'dot', done: {}, oriented: false, everOriented: false,
   });
   if (G.lv.targetShown) G.done.dot = true;
@@ -365,6 +374,10 @@ function newMission() {
   $('meterBox').classList.toggle('hidden', !G.lv.meters);
   $('cursorOut').textContent = '';
   $('rulerOut').textContent = '';
+  $('bearOut').textContent = '💡 לחצו על נקודה בשטח (למשל פסגה) כדי לקחת אליה אזימוט.';
+  $('backBtn').classList.add('hidden');
+  $('optContours').checked = VIEWOPT.contours = G.level !== 'hard';
+  $('optPeaks').checked = VIEWOPT.peaks = G.level === 'easy';
   setControlsEnabled(true);
   MV.rot = 0;
   fitMap(G.start, 1.6);
@@ -379,32 +392,38 @@ function newMission() {
 /* =======================================================================
    5. מבט בשטח — raycasting על רשת הגובה
    ======================================================================= */
-const VW = 520, VH = 292;
+const VW = 800, VH = 450;
 const rv = document.createElement('canvas'); rv.width = VW; rv.height = VH;
 const rctx = rv.getContext('2d');
 const rimg = rctx.createImageData(VW, VH), rbuf = new Uint32Array(rimg.data.buffer);
 const pack = (r, g, b) => (255 << 24) | ((b & 255) << 16) | ((g & 255) << 8) | (r & 255);
+// הכהיית פיקסל ארוז לכיוון צבע נתון (לקווי רכס וקווי גובה)
+const tint = (c, r, g, b, a) => pack((c & 255) * (1 - a) + r * a, ((c >>> 8) & 255) * (1 - a) + g * a, ((c >>> 16) & 255) * (1 - a) + b * a);
 
 const PAL = {
-  north:  { ground: [116, 132, 70], veg: [58, 84, 44], rock: [138, 130, 112], haze: [196, 208, 220], hz: 2600, skyTop: [104, 155, 212], skyLow: [206, 221, 233] },
-  center: { ground: [164, 146, 108], veg: [98, 110, 62], rock: [182, 172, 150], haze: [204, 208, 214], hz: 3000, skyTop: [110, 160, 214], skyLow: [214, 224, 232] },
-  desert: { ground: [204, 172, 126], veg: [150, 130, 90], rock: [168, 128, 94], haze: [222, 210, 196], hz: 4200, skyTop: [120, 166, 214], skyLow: [228, 222, 210] },
+  north:  { ground: [124, 140, 74], veg: [60, 88, 46], tree: [40, 66, 34], rock: [146, 138, 118], wet: [74, 108, 56], haze: [196, 208, 220], hz: 3400, skyTop: [96, 150, 212], skyLow: [208, 222, 234] },
+  center: { ground: [170, 152, 112], veg: [100, 112, 62], tree: [66, 84, 44], rock: [190, 180, 158], wet: [122, 124, 82], haze: [204, 208, 214], hz: 3800, skyTop: [104, 156, 214], skyLow: [214, 224, 232] },
+  desert: { ground: [208, 174, 126], veg: [150, 130, 90], tree: [110, 104, 70], rock: [166, 124, 90], wet: [232, 218, 186], haze: [224, 212, 198], hz: 5200, skyTop: [112, 162, 214], skyLow: [230, 224, 212] },
 };
+// שכבות עזר במבט בשטח
+const VIEWOPT = { contours: false, peaks: false };
+let viewLabels = [];          // נקודות גובה שנראות בשטח: {b: אזימוט רשת, d, z}
+let viewEyeZ = 0;
 
 function renderView() {
   if (!T) return;
   const P = PAL[T.meta.biome], f = (VW / 2) / Math.tan(rad(FOV / 2)), y0 = Math.round(VH * 0.46);
-  const { nx, ny, cell, e0, n0, h, shade, slope } = T, vth = VEG_TH[T.meta.biome];
-  const eyeZ = hAt(G.pos.E, G.pos.N) + EYE;
+  const { nx, ny, cell, e0, n0, h, shade, slope, wet } = T, vth = VEG_TH[T.meta.biome];
+  const eyeZ = hAt(G.pos.E, G.pos.N) + EYE; viewEyeZ = eyeZ;
   const sky = new Uint32Array(VH);
   for (let y = 0; y < VH; y++) {
     const t = clamp(y / y0, 0, 1);
     sky[y] = pack(P.skyTop[0] + (P.skyLow[0] - P.skyTop[0]) * t, P.skyTop[1] + (P.skyLow[1] - P.skyTop[1]) * t, P.skyTop[2] + (P.skyLow[2] - P.skyTop[2]) * t);
   }
-  const hd = rad(G.hd);
+  const hd = rad(G.hd), cont = VIEWOPT.contours;
   for (let x = 0; x < VW; x++) {
     const off = Math.atan((x + 0.5 - VW / 2) / f), a = hd + off, sa = Math.sin(a), ca = Math.cos(a), corr = Math.cos(off);
-    let ybuf = VH, d = 1.5;
+    let ybuf = VH, d = 1.5, lastD = 0, prevZ = NaN;
     while (d < 7000 && ybuf > 0) {
       const E = G.pos.E + sa * d, N = G.pos.N + ca * d;
       let gx = (E - e0) / cell, gy = (N - n0) / cell, over = 0;
@@ -412,38 +431,87 @@ function renderView() {
       if (gy < 0) { over = Math.max(over, -gy); gy = 0; } else if (gy > ny - 1.001) { over = Math.max(over, gy - ny + 1.001); gy = ny - 1.001; }
       const i = gx | 0, j = gy | 0, fx = gx - i, fy = gy - j, k = j * nx + i;
       const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
-      let z = h[k] * w00 + h[k + 1] * w10 + h[k + nx] * w01 + h[k + nx + 1] * w11;
+      const zg = h[k] * w00 + h[k + 1] * w10 + h[k + nx] * w01 + h[k + nx + 1] * w11;
+      let z = zg;
       if (over) z -= over * cell * 0.4;   // מעבר לגבול הגזרה השטח "צונח" אל האופק
+      const sl = slope[k] * w00 + slope[k + 1] * w10 + slope[k + nx] * w01 + slope[k + nx + 1] * w11;
+      // עצים בודדים בחורש הקרוב — נותנים קנה מידה ותחושת תנועה
+      let tree = 0, tv = -1;
+      if (vth < 1 && d < 240 && sl < 0.6) {
+        tv = clamp((vegIndex(E, N) - vth) / 0.05, 0, 1);
+        if (tv > 0.5) {
+          const cx = Math.floor(E / 7), cy = Math.floor(N / 7);
+          if (hash2(cx, cy) > 0.42) {
+            const ox = (cx + 0.2 + 0.6 * hash2(cy, cx)) * 7, oy = (cy + 0.2 + 0.6 * hash2(cx + 7, cy - 3)) * 7, r = Math.hypot(E - ox, N - oy);
+            if (r < 2.8) { tree = 1.5 + 4 * (1 - (r / 2.8) ** 2) * (0.7 + 0.6 * hash2(cx - 5, cy + 9)); z += tree; }
+          }
+        }
+      }
       const sy = y0 - (z - eyeZ) * f / (d * corr);
       if (sy < ybuf) {
         const top = Math.max(0, Math.ceil(sy));
         if (top < ybuf) {
           const sh = shade[k] * w00 + shade[k + 1] * w10 + shade[k + nx] * w01 + shade[k + nx + 1] * w11;
-          // צבע הקרקע: מעבר רך בין קרקע, צמחייה וסלע (לפי שיפוע)
-          const sl = slope[k] * w00 + slope[k + 1] * w10 + slope[k + nx] * w01 + slope[k + nx + 1] * w11;
-          const tv = vth < 1 ? clamp((vegIndex(E, N) - vth) / 0.05, 0, 1) * clamp((0.6 - sl) / 0.1, 0, 1) : 0;
-          const tr = clamp((sl - 0.45) / 0.3, 0, 1);
-          const c = [0, 1, 2].map(q => (P.ground[q] * (1 - tv) + P.veg[q] * tv) * (1 - tr) + P.rock[q] * tr);
-          let lum = 0.42 + 0.78 * sh;
-          if (d < 400) lum *= 0.9 + 0.2 * vnoise(E / 3.1, N / 3.1) * (1 - d / 400) + 0.1 * (d / 400);
+          let c;
+          if (tree) c = P.tree;
+          else {
+            if (tv < 0) tv = vth < 1 ? clamp((vegIndex(E, N) - vth) / 0.05, 0, 1) * clamp((0.6 - sl) / 0.1, 0, 1) : 0;
+            const tr = clamp((sl - 0.45) / 0.3, 0, 1);
+            const tw = clamp((wet[k] * w00 + wet[k + 1] * w10 + wet[k + nx] * w01 + wet[k + nx + 1] * w11) * 1.4, 0, 1) * (1 - tr);
+            c = [0, 1, 2].map(q => ((P.ground[q] * (1 - tv) + P.veg[q] * tv) * (1 - tr) + P.rock[q] * tr) * (1 - tw) + P.wet[q] * tw);
+          }
+          let lum = 0.36 + 0.86 * sh;
+          if (d < 400 && !tree) lum *= 0.9 + 0.2 * vnoise(E / 3.1, N / 3.1) * (1 - d / 400) + 0.1 * (d / 400);
           const t = 1 - Math.exp(-d / P.hz);
-          const col = pack(
+          let col = pack(
             c[0] * lum * (1 - t) + P.haze[0] * t,
             c[1] * lum * (1 - t) + P.haze[1] * t,
             c[2] * lum * (1 - t) + P.haze[2] * t);
+          // קווי גובה בשטח (עזר): כל 10 מ׳, מודגש כל 50 מ׳
+          if (cont && d < 2500 && prevZ === prevZ && Math.floor(zg / 10) !== Math.floor(prevZ / 10)) {
+            const idx = (Math.floor(Math.max(zg, prevZ) / 10) * 10) % 50 === 0;
+            col = tint(col, 110, 62, 20, (idx ? 0.85 : 0.5) * (1 - d / 2500));
+          }
+          // קו רכס: כשמאחורי תוואי קרוב מופיע שטח רחוק — מודגש קו המתאר של הקרוב
+          if (lastD && ybuf < VH && d > lastD * 1.3 + 25) {
+            const al = clamp(1 - lastD / 3500, 0.3, 0.85);
+            rbuf[ybuf * VW + x] = tint(rbuf[ybuf * VW + x], 30, 34, 24, al);
+            if (ybuf + 1 < VH && lastD < 1200) rbuf[(ybuf + 1) * VW + x] = tint(rbuf[(ybuf + 1) * VW + x], 30, 34, 24, al * 0.5);
+          }
           for (let y = top; y < ybuf; y++) rbuf[y * VW + x] = col;
-          ybuf = top;
+          ybuf = top; lastD = d;
         }
       }
-      d += 0.6 + d * 0.011;
+      prevZ = zg;
+      d += 0.5 + d * 0.009;
     }
+    if (ybuf < VH && ybuf > 0) rbuf[ybuf * VW + x] = tint(rbuf[ybuf * VW + x], 40, 46, 36, 0.45);   // קו האופק
     for (let y = 0; y < ybuf; y++) rbuf[y * VW + x] = sky[y];
   }
   rctx.putImageData(rimg, 0, 0);
+
+  // נקודות גובה שנראות מכאן (בדיקת הסתרה לאורך הקו)
+  viewLabels = [];
+  if (VIEWOPT.peaks) {
+    for (const [i, j, z] of T.meta.peaks) {
+      const E = T.e0 + i * cell, N = T.n0 + j * cell, dist = Math.hypot(E - G.pos.E, N - G.pos.N);
+      if (dist < 60 || dist > 6500) continue;
+      const b = azimuth(E - G.pos.E, N - G.pos.N);
+      if (Math.abs(angDiff(b, G.hd)) > FOV / 2 + 2) continue;
+      const ang = (z - eyeZ) / dist, sb = Math.sin(rad(b)), cb = Math.cos(rad(b));
+      let vis = true;
+      for (let s = 30; s < dist - 50; s += Math.max(15, s * 0.03)) {
+        if ((hAt(G.pos.E + sb * s, G.pos.N + cb * s) - eyeZ) / s > ang + 0.004) { vis = false; break; }
+      }
+      if (vis) viewLabels.push({ b, d: dist, z });
+    }
+  }
   drawView();
 }
 
 // הצגת המבט + שכבת מצפן (HUD) ברזולוציית המסך
+let viewHover = null;   // x של העכבר מעל המבט
+function viewProj(W) { return (W / 2) / Math.tan(rad(FOV / 2)); }
 function drawView() {
   const cv = $('viewCv'), dpr = window.devicePixelRatio || 1;
   const W = cv.clientWidth, H = cv.clientHeight;
@@ -454,7 +522,41 @@ function drawView() {
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(rv, 0, 0, W, H);
 
-  const mag = norm360(G.hd - DECL), f = (W / 2) / Math.tan(rad(FOV / 2));
+  const mag = norm360(G.hd - DECL), f = viewProj(W), y0 = H * 0.46;
+  const xOfMag = b => W / 2 + Math.tan(rad(angDiff(b, mag))) * f;   // x של אזימוט מגנטי
+  const halo = (txt, x, y, color, font) => {
+    ctx.font = font; ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.strokeText(txt, x, y); ctx.fillStyle = color; ctx.fillText(txt, x, y);
+  };
+
+  // נקודות גובה בשטח (עזר)
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  const placed = [];
+  for (const p of [...viewLabels].sort((a, b) => a.d - b.d)) {
+    const rel = angDiff(p.b, G.hd), x = W / 2 + Math.tan(rad(rel)) * f;
+    const y = y0 - (p.z - viewEyeZ) * f / (p.d * Math.cos(rad(rel)));
+    if (placed.some(q => Math.abs(q[0] - x) < 46 && Math.abs(q[1] - y) < 30)) continue;   // בלי תוויות חופפות
+    placed.push([x, y]);
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.moveTo(x, y - 9); ctx.lineTo(x + 5, y - 2); ctx.lineTo(x - 5, y - 2); ctx.closePath(); ctx.fill();
+    halo(`${p.z}`, x, y - 11, '#111', '800 12px Heebo, sans-serif');
+    halo(fmtDist(p.d), x, y - 25, '#444', '600 10px Heebo, sans-serif');
+  }
+
+  // אזימוטים שנלקחו לנקודות בשטח
+  for (const br of G.bearings) {
+    if (Math.abs(angDiff(br.mag, mag)) > FOV / 2) continue;
+    const x = xOfMag(br.mag);
+    ctx.strokeStyle = '#7a1fa0'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(x, 40); ctx.lineTo(x, H * 0.8); ctx.stroke(); ctx.setLineDash([]);
+    ctx.textBaseline = 'top'; halo(`${Math.round(br.mag)}° (${br.n})`, x, H * 0.8 + 3, '#7a1fa0', '800 12px Heebo, sans-serif');
+  }
+  // עכבר מעל המבט: אזימוט חי
+  if (viewHover !== null && G.phase !== 'done') {
+    const b = norm360(mag + deg(Math.atan((viewHover - W / 2) / f)));
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(viewHover, 40); ctx.lineTo(viewHover, H - 8); ctx.stroke();
+    ctx.textBaseline = 'top'; halo(`${Math.round(b)}°`, viewHover, 54, '#7a1fa0', '800 13px Heebo, sans-serif');
+  }
+
   // סרט מצפן עליון — זוויות פרספקטיביות, כך שאפשר "לקחת אזימוט" לפסגה שנראית
   ctx.fillStyle = 'rgba(20,26,12,0.62)'; ctx.fillRect(0, 0, W, 36);
   ctx.strokeStyle = '#efe7d0'; ctx.fillStyle = '#efe7d0'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
@@ -464,7 +566,7 @@ function drawView() {
     const x = W / 2 + Math.tan(rad(b - mag)) * f;
     if (x < 0 || x > W) continue;
     const big = bb % 10 === 0;
-    ctx.lineWidth = big ? 1.6 : 1; ctx.beginPath(); ctx.moveTo(x, 36); ctx.lineTo(x, big ? 26 : 30); ctx.stroke();
+    ctx.strokeStyle = '#efe7d0'; ctx.lineWidth = big ? 1.6 : 1; ctx.beginPath(); ctx.moveTo(x, 36); ctx.lineTo(x, big ? 26 : 30); ctx.stroke();
     if (bb % 10 === 0) {
       ctx.font = CARD[bb] !== undefined ? '800 13px Heebo, sans-serif' : '600 11px Heebo, sans-serif';
       ctx.fillStyle = CARD[bb] !== undefined ? '#ffcf5a' : '#efe7d0';
@@ -490,6 +592,24 @@ function drawView() {
   ctx.fillStyle = '#c0392b'; ctx.font = '800 11px Heebo, sans-serif'; ctx.fillText('צ', 0, -R + 8);
   ctx.restore();
 }
+
+/* ---------- לקיחת אזימוט לנקודה בשטח (לחיצה על המבט) ---------- */
+(() => {
+  const cv = $('viewCv');
+  cv.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && T && G.phase !== 'idle') { viewHover = e.offsetX; drawView(); } });
+  cv.addEventListener('pointerleave', () => { viewHover = null; if (T && G.phase !== 'idle') drawView(); });
+  cv.addEventListener('click', e => {
+    if (!T || G.phase === 'idle' || G.phase === 'done') return;
+    const W = cv.clientWidth, mag = norm360(G.hd - DECL + deg(Math.atan((e.offsetX - W / 2) / viewProj(W))));
+    if (G.bearings.length >= 4) G.bearings.shift();
+    const n = (G.bearingSeq = (G.bearingSeq || 0) + 1);
+    G.bearings.push({ mag, n });
+    G.pendingBearing = G.bearings[G.bearings.length - 1];
+    $('bearOut').innerHTML = `🎯 אזימוט ${n} לנקודה בשטח: <b>${Math.round(mag)}°</b> מגנטי (חוזר: ${Math.round(norm360(mag + 180))}°)`;
+    $('backBtn').classList.remove('hidden');
+    drawView();
+  });
+})();
 
 /* =======================================================================
    6. תנועה בשטח
@@ -620,10 +740,41 @@ function drawMap() {
   }
 
   // סרגל
+  // קווים חוזרים (חיתוך לאחור)
+  for (const bl of G.backLines) {
+    const far = { E: bl.E + Math.sin(rad(bl.az)) * 5000, N: bl.N + Math.cos(rad(bl.az)) * 5000 };
+    line([bl, far], '#7a1fa0', 2, [9, 5]);
+    const [x, y] = w2s(bl.E, bl.N); ctx.fillStyle = '#7a1fa0'; ctx.beginPath(); ctx.arc(x, y, 4, 0, TAU); ctx.fill();
+    const [lx, ly] = w2s(bl.E + Math.sin(rad(bl.az)) * 300, bl.N + Math.cos(rad(bl.az)) * 300);
+    label(`חוזר ${bl.n}: ${Math.round(bl.az)}°`, lx, ly, '#7a1fa0');
+  }
+  // מד־זווית: עיגול מעלות סביב הנקודה הראשונה (מיושר לצפון הרשת) + קו ומדידה
   if (G.ruler.length) {
-    const [a, b] = G.ruler, [ax, ay] = w2s(a.E, a.N);
-    if (b) { line([a, b], '#7a1fa0', 2.2); const [x2, y2] = w2s(b.E, b.N); ctx.fillStyle = '#7a1fa0'; ctx.beginPath(); ctx.arc(x2, y2, 4, 0, TAU); ctx.fill(); }
-    ctx.fillStyle = '#7a1fa0'; ctx.beginPath(); ctx.arc(ax, ay, 4, 0, TAU); ctx.fill();
+    const [a, b] = G.ruler, [ax, ay] = w2s(a.E, a.N), R = 80;
+    ctx.save(); ctx.translate(ax, ay);
+    ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.strokeStyle = '#7a1fa0'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.font = '700 10px Heebo, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#5a1678';
+    for (let t = 0; t < 360; t += 5) {
+      const q = rad(t + MV.rot), sx = Math.sin(q), sy = -Math.cos(q), l = t % 30 === 0 ? 13 : t % 10 === 0 ? 8 : 4;
+      ctx.lineWidth = t % 30 === 0 ? 1.8 : 1;
+      ctx.beginPath(); ctx.moveTo(sx * R, sy * R); ctx.lineTo(sx * (R - l), sy * (R - l)); ctx.stroke();
+      if (t % 30 === 0) ctx.fillText(t === 0 ? 'צ' : String(t), sx * (R - 22), sy * (R - 22));
+    }
+    ctx.restore();
+    if (b) {
+      const az = azimuth(b.E - a.E, b.N - a.N), dist = Math.hypot(b.E - a.E, b.N - a.N);
+      // קשת הזווית מצפון הרשת לקו
+      ctx.strokeStyle = 'rgba(122,31,160,0.85)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(ax, ay, 30, rad(MV.rot - 90), rad(MV.rot + az - 90)); ctx.stroke();
+      const nq = rad(MV.rot); ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax + Math.sin(nq) * R, ay - Math.cos(nq) * R); ctx.stroke(); ctx.setLineDash([]);
+      line([a, b], '#7a1fa0', 2.6);
+      const [x2, y2] = w2s(b.E, b.N); ctx.fillStyle = '#7a1fa0'; ctx.beginPath(); ctx.arc(x2, y2, 4.5, 0, TAU); ctx.fill();
+      const q = rad(az + MV.rot), mx = (ax + x2) / 2 + Math.cos(q) * 16, my = (ay + y2) / 2 + Math.sin(q) * 16;
+      label(`${Math.round(az)}° · ${fmtDist(dist)}`, mx, my, '#5a1678');
+    }
+    ctx.fillStyle = '#7a1fa0'; ctx.beginPath(); ctx.arc(ax, ay, 4.5, 0, TAU); ctx.fill();
   }
   // סימונים ✏️
   G.marks.forEach((m, k) => {
@@ -735,9 +886,15 @@ function onMapTap(x, y) {
     }
     drawMap(); return;
   }
-  if (G.tool === 'ruler' && G.lv.ruler) {
-    if (G.ruler.length !== 1) G.ruler = [p]; else G.ruler.push(p);
-    updateRuler(); drawMap(); return;
+  if (G.tool === 'back' && G.pendingBearing) {
+    const q = snapPt(p), br = G.pendingBearing, az = norm360(br.mag + DECL + 180);
+    G.backLines = G.backLines.filter(l => l.n !== br.n).slice(-3);
+    G.backLines.push({ E: q.E, N: q.N, az, n: br.n });
+    G.pendingBearing = null; $('backBtn').classList.add('hidden'); setTool('pan');
+    mapMsg(G.backLines.length >= 2
+      ? '🎯 שני קווים חוזרים או יותר: המיקום שלכם בערך בנקודת ההצטלבות שלהם. סמנו אותו ב־✏️.'
+      : `🎯 שורטט קו חוזר (אזימוט רשת ${Math.round(az)}°). אתם נמצאים איפשהו עליו. קחו אזימוט לתוואי נוסף כדי לקבל הצטלבות.`);
+    drawMap(); return;
   }
   if (G.tool === 'mark' && G.phase !== 'done') {
     if (G.marks.length >= 12) G.marks.shift();
@@ -748,12 +905,28 @@ function onMapTap(x, y) {
   }
 }
 
+// הצמדה לנקודה ידועה קרובה (מוצא, יעד, סימונים, נקודות גובה)
+function snapPt(p) {
+  const pts = [G.start, ...(G.targetKnown ? [G.target] : []), ...G.marks,
+    ...T.meta.peaks.map(([i, j]) => ({ E: T.e0 + i * T.cell, N: T.n0 + j * T.cell }))];
+  let best = null, bd = 16 / MV.z;
+  for (const q of pts) { const d = Math.hypot(q.E - p.E, q.N - p.N); if (d < bd) { bd = d; best = q; } }
+  return best ? { E: best.E, N: best.N } : p;
+}
+
 function updateRuler() {
   const out = $('rulerOut');
-  if (G.ruler.length < 2) { out.textContent = G.ruler.length ? '📐 לחצו על נקודה שנייה' : ''; return; }
+  if (G.ruler.length < 2) { out.textContent = G.ruler.length ? '📐 לחצו או גררו אל הנקודה השנייה' : ''; return; }
   const [a, b] = G.ruler, dE = b.E - a.E, dN = b.N - a.N, grid = azimuth(dE, dN), dist = Math.hypot(dE, dN);
-  out.textContent = `📐 אזימוט רשת ${grid.toFixed(0)}°` + (G.lv.ruler === 'full' ? ` · מגנטי ${norm360(grid - DECL).toFixed(0)}°` : '') +
-    ` · מרחק ${fmtDist(dist)}` + (G.lv.ruler === 'full' ? ` (≈${Math.round(dist / PACE)} צמדי צעדים במישור)` : '');
+  const full = G.lv.ruler === 'full', mag = norm360(grid - DECL);
+  out.innerHTML = `📐 אזימוט רשת <b>${Math.round(grid) % 360}°</b>` + (full ? ` · מגנטי <b>${Math.round(mag) % 360}°</b>` : ' <span class="small">(למצפן: פחות 4.9°)</span>') +
+    ` · חוזר ${Math.round(norm360(grid + 180)) % 360}° · מרחק <b>${fmtDist(dist)}</b>` + (full ? ` (≈${Math.round(dist / PACE)} צמדי צעדים במישור)` : '') +
+    (full ? ' <button class="gbtn tiny" id="rulerAim">🧭 כוונו את המצפן לאזימוט הזה</button>' : '');
+  if (full) $('rulerAim').addEventListener('click', () => {
+    if (G.phase === 'done' || G.phase === 'final') return;
+    G.hd = norm360(grid); updateHUD(); renderView(); if (lockOrient()) drawMap(); else updateOrient();
+    fieldMsg(`🧭 המצפן מכוון לאזימוט מגנטי ${Math.round(mag) % 360}°.`, '');
+  });
   // נחשב "מדידת אזימוט" אם הסרגל נמתח בין סביבת נקודה ידועה ליעד
   const near = (p, q) => Math.hypot(p.E - q.E, p.N - q.N) < 250;
   if ((near(a, G.start) || G.marks.some(m => near(a, m))) && near(b, G.target)) { G.done.az = true; updateChecklist(); }
@@ -761,11 +934,18 @@ function updateRuler() {
 
 /* ---------- קלט עכבר / מגע במפה ---------- */
 (() => {
-  const ptrs = new Map(); let moved = 0, last = null, pinch = null;
+  const ptrs = new Map(); let moved = 0, last = null, pinch = null, rulerDrag = false, second = false;
   mapCv.addEventListener('pointerdown', e => {
     mapCv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
     moved = 0; last = { x: e.offsetX, y: e.offsetY };
-    if (ptrs.size === 2) { const [p, q] = [...ptrs.values()]; pinch = { d: Math.hypot(p.x - q.x, p.y - q.y), z: MV.z }; }
+    if (ptrs.size === 2) { const [p, q] = [...ptrs.values()]; pinch = { d: Math.hypot(p.x - q.x, p.y - q.y), z: MV.z }; rulerDrag = false; return; }
+    // מד־זווית: לחיצה וגרירה מנקודה לנקודה (או שתי לחיצות)
+    rulerDrag = G.tool === 'ruler' && !!G.lv.ruler && G.phase !== 'final' && G.phase !== 'done' && !!T;
+    if (rulerDrag) {
+      second = G.ruler.length === 1;
+      if (!second) G.ruler = [snapPt(s2w(e.offsetX, e.offsetY))];
+      updateRuler(); drawMap();
+    }
   });
   mapCv.addEventListener('pointermove', e => {
     if (G.lv.cursorNZ && T && G.phase !== 'idle') { const p = s2w(e.offsetX, e.offsetY); $('cursorOut').textContent = inside(p.E, p.N) ? `סמן: נ״צ ${fmtNZ(p.E, p.N)}` : ''; }
@@ -776,6 +956,10 @@ function updateRuler() {
       MV.z = pinch.z * Math.hypot(p.x - q.x, p.y - q.y) / (pinch.d || 1); clampView(); moved = 99; drawMap(); return;
     }
     const dx = e.offsetX - last.x, dy = e.offsetY - last.y; moved += Math.abs(dx) + Math.abs(dy); last = { x: e.offsetX, y: e.offsetY };
+    if (rulerDrag) {
+      if (moved > 6) { G.ruler = [G.ruler[0], s2w(e.offsetX, e.offsetY)]; updateRuler(); drawMap(); }
+      return;
+    }
     if (moved > 6) {
       const r = rad(-MV.rot), ux = dx * Math.cos(r) - dy * Math.sin(r), uy = dx * Math.sin(r) + dy * Math.cos(r);
       MV.cx -= ux / MV.z; MV.cy += uy / MV.z; clampView(); drawMap();
@@ -785,6 +969,11 @@ function updateRuler() {
     if (!ptrs.has(e.pointerId)) return;
     ptrs.delete(e.pointerId);
     if (ptrs.size < 2) pinch = null;
+    if (rulerDrag) {
+      rulerDrag = false;
+      if (moved > 6 || second) G.ruler = [G.ruler[0], snapPt(s2w(e.offsetX, e.offsetY))];
+      updateRuler(); drawMap(); return;
+    }
     if (moved <= 6 && ptrs.size === 0 && e.type === 'pointerup') onMapTap(e.offsetX, e.offsetY);
   };
   mapCv.addEventListener('pointerup', up); mapCv.addEventListener('pointercancel', up);
@@ -963,7 +1152,20 @@ function bindUI() {
     setTool(b.dataset.tool);
     if (b.dataset.tool === 'ruler') $('rulerOut').textContent = '📐 לחצו על נקודת מוצא ואחר כך על נקודת יעד';
   }));
-  $('clearMarks').addEventListener('click', () => { if (G.phase === 'done') return; G.marks = []; G.ruler = []; $('rulerOut').textContent = ''; drawMap(); });
+  $('clearMarks').addEventListener('click', () => {
+    if (G.phase === 'done') return;
+    G.marks = []; G.ruler = []; G.backLines = []; G.bearings = []; G.pendingBearing = null;
+    $('rulerOut').textContent = ''; $('backBtn').classList.add('hidden'); drawMap(); drawView();
+  });
+  $('backBtn').addEventListener('click', () => {
+    if (!G.pendingBearing || G.phase === 'final' || G.phase === 'done') return;
+    setTool('back');
+    mapMsg(`🎯 לחצו על המפה על התוואי שאליו לקחתם את אזימוט ${G.pendingBearing.n} (למשל ▲ נקודת גובה). ישורטט ממנו הקו החוזר.`);
+    $('mapWrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  $('optContours').addEventListener('change', e => { VIEWOPT.contours = e.target.checked; if (T && G.phase !== 'idle') renderView(); });
+  $('optPeaks').addEventListener('change', e => { VIEWOPT.peaks = e.target.checked; if (T && G.phase !== 'idle') renderView(); });
+  $('strongShade').addEventListener('change', e => { MAPOPT.strong = e.target.checked; if (T) { buildMapBase(); drawMap(); } });
   $('zoomIn').addEventListener('click', () => { MV.z *= 1.4; clampView(); drawMap(); });
   $('zoomOut').addEventListener('click', () => { MV.z /= 1.4; clampView(); drawMap(); });
   $('rotL').addEventListener('click', () => rotateMap(-15));
