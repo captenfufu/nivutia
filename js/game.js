@@ -90,6 +90,34 @@ async function loadTerrain(meta) {
     for (let q = 1; q + 1 < ln.length; q += 2) { const k = ln[q + 1] * nx + ln[q]; if (w > wet[k]) wet[k] = w; }
   }
   T = { meta, h, shade, slope, veg, wet, nx, ny, cell, e0, n0, nTop: n0 + (ny - 1) * cell, size: (nx - 1) * cell };
+
+  // שכבות אמיתיות: תצלום לוויין (Sentinel-2), כיסוי קרקע (WorldCover), דרכים ויישובים (Overture/OSM)
+  const loadImg = src => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
+  const pixels = im => { const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; const x = c.getContext('2d'); x.drawImage(im, 0, 0); return x.getImageData(0, 0, im.width, im.height).data; };
+  const [sat, lc, ov] = await Promise.all([
+    loadImg(`assets/game/${meta.id}_sat.jpg`), loadImg(`assets/game/${meta.id}_lc.png`),
+    fetch(`assets/game/${meta.id}_ov.json`).then(r => r.ok ? r.json() : null).catch(() => null)]);
+  try {
+    if (sat) { T.satImg = sat; T.sat = pixels(sat); T.satN = sat.width; T.satRes = T.size / sat.width; }
+    if (lc) { const d = pixels(lc); T.lcN = lc.width; T.lcRes = T.size / lc.width; T.lc = new Uint8Array(lc.width * lc.height); for (let k = 0; k < T.lc.length; k++) T.lc[k] = d[k * 4]; }
+  } catch (e) { console.warn('imagery', e); T.sat = T.lc = null; }
+  T.ov = ov || { roads: [], places: [] };
+  // הצללה למבט התלת־ממדי: שמש מדרום־מזרח, כמו בשעת הצילום של הלוויין
+  const shade3 = new Float32Array(nx * ny), a3 = rad(140), e3 = rad(50);
+  const L3 = [Math.sin(a3) * Math.cos(e3), Math.cos(a3) * Math.cos(e3), Math.sin(e3)];
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const dzx = (h[j * nx + Math.min(nx - 1, i + 1)] - h[j * nx + Math.max(0, i - 1)]) / (2 * cell);
+    const dzy = (h[Math.min(ny - 1, j + 1) * nx + i] - h[Math.max(0, j - 1) * nx + i]) / (2 * cell);
+    shade3[j * nx + i] = Math.max(0, (-dzx * L3[0] - dzy * L3[1] + L3[2]) / Math.hypot(dzx, dzy, 1));
+  }
+  T.shade3 = shade3;
+}
+
+// כיסוי קרקע (קוד WorldCover: 10 עצים, 20 שיחים, 30 עשב, 40 חקלאות, 50 בנוי, 60 חשוף, 80 מים)
+function lcAt(E, N) {
+  if (!T.lc) return 0;
+  const x = Math.floor((E - T.e0) / T.lcRes), y = Math.floor((T.nTop - N) / T.lcRes);
+  return x < 0 || y < 0 || x >= T.lcN || y >= T.lcN ? 0 : T.lc[y * T.lcN + x];
 }
 
 // גובה (אינטרפולציה בילינארית) בנקודת ITM
@@ -184,7 +212,7 @@ function evalPath(pts) {
    3. בסיס המפה הטופוגרפית (נבנה פעם אחת לכל גזרה)
    ======================================================================= */
 let mapBase = null;
-const MAPOPT = { strong: false };   // הצללת תבליט מודגשת
+const MAPOPT = { strong: false, layer: 'topo' };   // הצללה מודגשת; שכבה: topo | sat
 const bx = E => (E - T.e0) * MPX, by = N => (T.nTop - N) * MPX;
 
 function buildMapBase() {
@@ -193,19 +221,37 @@ function buildMapBase() {
   const cv = document.createElement('canvas'); cv.width = cv.height = W;
   const ctx = cv.getContext('2d');
 
-  // 3.1 רקע: נייר + צמחייה + הצללת תבליט עדינה
-  const small = document.createElement('canvas'); small.width = nx; small.height = ny;
-  const sctx = small.getContext('2d'), img = sctx.createImageData(nx, ny);
+  // 3.1 רקע: תצלום אוויר, או "נייר" עם כיסוי קרקע בצבעי מפה (חורש ירוק, שדות, שטח בנוי)
+  const satLayer = MAPOPT.layer === 'sat' && T.satImg;
   const paper = meta.biome === 'desert' ? [247, 238, 218] : [249, 246, 234];
-  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
-    const k = j * nx + i, p = ((ny - 1 - j) * nx + i) * 4;
-    let c = veg[k] ? [207, 227, 180] : paper;
-    const m = MAPOPT.strong ? 0.48 + 0.7 * shade[k] : 0.8 + 0.26 * shade[k];
-    img.data[p] = clamp(c[0] * m, 0, 255); img.data[p + 1] = clamp(c[1] * m, 0, 255); img.data[p + 2] = clamp(c[2] * m, 0, 255); img.data[p + 3] = 255;
-  }
-  sctx.putImageData(img, 0, 0);
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(small, -cell * MPX / 2, -cell * MPX / 2, nx * cell * MPX, ny * cell * MPX);
+  if (satLayer) ctx.drawImage(T.satImg, 0, 0, W, W);
+  else {
+    const LC = { 10: [196, 224, 170], 20: [222, 234, 200], 40: [245, 238, 204], 50: [196, 189, 182], 80: [168, 210, 234], 90: [200, 228, 236] };
+    const n = T.lc ? T.lcN : nx, c2 = document.createElement('canvas'); c2.width = c2.height = n;
+    const x2 = c2.getContext('2d'), im2 = x2.createImageData(n, n);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const p = (y * n + x) * 4;
+      const c = T.lc ? (LC[T.lc[y * n + x]] || paper) : (veg[(ny - 1 - y) * nx + x] ? LC[10] : paper);
+      im2.data[p] = c[0]; im2.data[p + 1] = c[1]; im2.data[p + 2] = c[2]; im2.data[p + 3] = 255;
+    }
+    x2.putImageData(im2, 0, 0);
+    ctx.drawImage(c2, 0, 0, W, W);
+  }
+  // הצללת תבליט (שכבת הכפלה)
+  if (!satLayer || MAPOPT.strong) {
+    const small = document.createElement('canvas'); small.width = nx; small.height = ny;
+    const sctx = small.getContext('2d'), img = sctx.createImageData(nx, ny);
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const k = j * nx + i, p = ((ny - 1 - j) * nx + i) * 4;
+      const m = 255 * Math.min(1, MAPOPT.strong ? 0.5 + 0.66 * shade[k] : 0.8 + 0.25 * shade[k]);
+      img.data[p] = img.data[p + 1] = img.data[p + 2] = m; img.data[p + 3] = 255;
+    }
+    sctx.putImageData(img, 0, 0);
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.drawImage(small, -cell * MPX / 2, -cell * MPX / 2, nx * cell * MPX, ny * cell * MPX);
+    ctx.globalCompositeOperation = 'source-over';
+  }
 
   const px = (i) => i * cell * MPX, py = (j) => (ny - 1 - j) * cell * MPX;
 
@@ -250,8 +296,25 @@ function buildMapBase() {
       }
     }
   }
-  ctx.strokeStyle = 'rgba(169,116,58,0.85)'; ctx.lineWidth = 0.75; ctx.stroke(thin);
-  ctx.strokeStyle = 'rgba(150,96,40,0.95)'; ctx.lineWidth = 1.6; ctx.stroke(thick);
+  ctx.strokeStyle = satLayer ? 'rgba(255,214,150,0.45)' : 'rgba(169,116,58,0.85)'; ctx.lineWidth = 0.75; ctx.stroke(thin);
+  ctx.strokeStyle = satLayer ? 'rgba(255,200,120,0.75)' : 'rgba(150,96,40,0.95)'; ctx.lineWidth = 1.6; ctx.stroke(thick);
+
+  // 3.3ב דרכים ושבילים (OpenStreetMap דרך Overture): כביש ראשי אדום, משני כתום, מקומי שחור, דרך עפר מקווקוות, שביל מנוקד
+  const ROAD = {
+    F: { c: '#4a3622', w: 1.1, d: [1.5, 3] }, T: { c: '#3d2b19', w: 1.4, d: [6, 3] }, X: { c: '#222', w: 1.6, d: [9, 3] },
+    V: { c: '#6b6b6b', w: 1.1 }, R: { c: '#3a3a3a', w: 1.5 },
+    S: { c: '#f0a04b', w: 2.2, k: '#5a4a3a' }, P: { c: '#e2552f', w: 2.8, k: '#3a2a2a' }, M: { c: '#d22f25', w: 3.4, k: '#2a1a1a' },
+  };
+  const roadPath = rd => { const p = new Path2D(); p.moveTo(rd[2] * MPX, W - 1 - rd[3] * MPX); for (let q = 4; q + 1 < rd.length; q += 2) p.lineTo(rd[q] * MPX, W - 1 - rd[q + 1] * MPX); return p; };
+  ctx.lineJoin = ctx.lineCap = 'round';
+  for (const cls of ['F', 'T', 'X', 'V', 'R', 'S', 'P', 'M']) {
+    const st = ROAD[cls], paths = T.ov.roads.filter(r => r[0] === cls).map(roadPath);
+    if (!paths.length) continue;
+    if (st.k) { ctx.strokeStyle = st.k; ctx.lineWidth = st.w + 1.6; ctx.setLineDash([]); paths.forEach(p => ctx.stroke(p)); }
+    ctx.strokeStyle = satLayer && !st.k ? 'rgba(255,255,255,0.85)' : st.c; ctx.lineWidth = st.w; ctx.setLineDash(st.d || []);
+    paths.forEach(p => ctx.stroke(p));
+  }
+  ctx.setLineDash([]);
 
   // תוויות גובה על קווים מודגשים — בפיזור, בלי צפיפות
   const placed = [];
@@ -298,6 +361,18 @@ function buildMapBase() {
     ctx.fillStyle = '#111'; ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x + 4, y + 3); ctx.lineTo(x - 4, y + 3); ctx.closePath(); ctx.fill();
     ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.strokeText(String(z), x + 6, y); ctx.fillText(String(z), x + 6, y);
   }
+  // 3.6 שמות יישובים
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const PLACE = { city: 19, town: 17, village: 15, hamlet: 13, locality: 14 };
+  const shown = [];
+  for (const [nm, x, y, cls, pop] of [...T.ov.places].sort((a, b) => (b[4] || 0) - (a[4] || 0))) {
+    const fs = PLACE[cls]; if (!fs) continue;
+    const X = x * MPX, Y = W - 1 - y * MPX;
+    if (shown.some(q => Math.abs(q[0] - X) < 90 && Math.abs(q[1] - Y) < 26)) continue;
+    shown.push([X, Y]);
+    ctx.font = `800 ${fs}px Heebo, sans-serif`; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+    ctx.strokeText(nm, X, Y); ctx.fillStyle = '#111'; ctx.fillText(nm, X, Y);
+  }
   ctx.strokeStyle = '#333'; ctx.lineWidth = 2; ctx.strokeRect(1, 1, W - 2, W - 2);
   mapBase = cv;
 }
@@ -326,7 +401,7 @@ function candidates() {
     if (n > 8 && ei > 2 && ej > 2 && ei < nx - 3 && ej < T.ny - 3) out.push({ ...W(ei, ej), type: 'junction', desc: 'מפגש ערוצים' });
     if (n > 30) { const q = 1 + 2 * Math.floor(n / 2); out.push({ ...W(ln[q], ln[q + 1]), type: 'stream', desc: 'בערוץ (אפיק נחל)' }); }
   }
-  return out.filter(p => inside(p.E, p.N, 1100) && T.slope[Math.round((p.N - T.n0) / cell) * nx + Math.round((p.E - T.e0) / cell)] < 0.55);
+  return out.filter(p => inside(p.E, p.N, 1100) && lcAt(p.E, p.N) !== 50 && T.slope[Math.round((p.N - T.n0) / cell) * nx + Math.round((p.E - T.e0) / cell)] < 0.55);
 }
 
 function pickMission() {
@@ -396,7 +471,8 @@ const VW = 800, VH = 450;
 const rv = document.createElement('canvas'); rv.width = VW; rv.height = VH;
 const rctx = rv.getContext('2d');
 const rimg = rctx.createImageData(VW, VH), rbuf = new Uint32Array(rimg.data.buffer);
-const pack = (r, g, b) => (255 << 24) | ((b & 255) << 16) | ((g & 255) << 8) | (r & 255);
+const cb = v => v > 255 ? 255 : v < 0 ? 0 : v | 0;
+const pack = (r, g, b) => (255 << 24) | (cb(b) << 16) | (cb(g) << 8) | cb(r);
 // הכהיית פיקסל ארוז לכיוון צבע נתון (לקווי רכס וקווי גובה)
 const tint = (c, r, g, b, a) => pack((c & 255) * (1 - a) + r * a, ((c >>> 8) & 255) * (1 - a) + g * a, ((c >>> 16) & 255) * (1 - a) + b * a);
 
@@ -413,7 +489,7 @@ let viewEyeZ = 0;
 function renderView() {
   if (!T) return;
   const P = PAL[T.meta.biome], f = (VW / 2) / Math.tan(rad(FOV / 2)), y0 = Math.round(VH * 0.46);
-  const { nx, ny, cell, e0, n0, h, shade, slope, wet } = T, vth = VEG_TH[T.meta.biome];
+  const { nx, ny, cell, e0, n0, h, shade, slope, wet, shade3 } = T, vth = VEG_TH[T.meta.biome], sat = T.sat;
   const eyeZ = hAt(G.pos.E, G.pos.N) + EYE; viewEyeZ = eyeZ;
   const sky = new Uint32Array(VH);
   for (let y = 0; y < VH; y++) {
@@ -435,9 +511,27 @@ function renderView() {
       let z = zg;
       if (over) z -= over * cell * 0.4;   // מעבר לגבול הגזרה השטח "צונח" אל האופק
       const sl = slope[k] * w00 + slope[k + 1] * w10 + slope[k + nx] * w01 + slope[k + nx + 1] * w11;
-      // עצים בודדים בחורש הקרוב — נותנים קנה מידה ותחושת תנועה
-      let tree = 0, tv = -1;
-      if (vth < 1 && d < 240 && sl < 0.6) {
+      // עצים ובניינים קרובים — לפי כיסוי הקרקע האמיתי; נותנים קנה מידה ותחושת תנועה
+      let tree = 0, tv = -1, bld = 0;
+      if (sat) {
+        if (d < 900) {
+          const lcv = lcAt(E, N);
+          if (lcv === 10 && d > 70 && d < 450) {
+            // חופת חורש: "גבשושיות" נמוכות על המדרון הרחוק — לא גושים שמסתירים את הכול
+            const cx = Math.floor(E / 8), cy = Math.floor(N / 8);
+            if (hash2(cx, cy) > 0.35) {
+              const ox = (cx + 0.25 + 0.5 * hash2(cy, cx)) * 8, oy = (cy + 0.25 + 0.5 * hash2(cx + 7, cy - 3)) * 8, r = Math.hypot(E - ox, N - oy);
+              if (r < 3.2) { tree = 2.5 * (1 - (r / 3.2) ** 2) * (0.7 + 0.6 * hash2(cx - 5, cy + 9)); z += tree; }
+            }
+          } else if (lcv === 50 && d > 150) {
+            const cx = Math.floor(E / 14), cy = Math.floor(N / 14);
+            if (hash2(cx + 3, cy) > 0.3) {
+              const hw = 3.5 + 2 * hash2(cx, cy + 5);
+              if (Math.abs(E - (cx + 0.5) * 14) < hw && Math.abs(N - (cy + 0.5) * 14) < hw) { bld = 3 + 4 * hash2(cy, cx + 1); z += bld; }
+            }
+          }
+        }
+      } else if (vth < 1 && d < 240 && sl < 0.6) {
         tv = clamp((vegIndex(E, N) - vth) / 0.05, 0, 1);
         if (tv > 0.5) {
           const cx = Math.floor(E / 7), cy = Math.floor(N / 7);
@@ -453,14 +547,21 @@ function renderView() {
         if (top < ybuf) {
           const sh = shade[k] * w00 + shade[k + 1] * w10 + shade[k + nx] * w01 + shade[k + nx + 1] * w11;
           let c;
-          if (tree) c = P.tree;
+          if (sat) {
+            // צבע מתצלום הלוויין (אינטרפולציה בילינארית)
+            const sx = clamp((E - e0) / T.satRes - 0.5, 0, T.satN - 1.001), sy2 = clamp((T.nTop - N) / T.satRes - 0.5, 0, T.satN - 1.001);
+            const ix = sx | 0, iy = sy2 | 0, ux = sx - ix, uy = sy2 - iy, q0 = (iy * T.satN + ix) * 4, q1 = q0 + T.satN * 4;
+            c = [0, 1, 2].map(q => (sat[q0 + q] * (1 - ux) + sat[q0 + 4 + q] * ux) * (1 - uy) + (sat[q1 + q] * (1 - ux) + sat[q1 + 4 + q] * ux) * uy);
+            if (tree) c = c.map(v => v * 0.8);
+            else if (bld) c = c.map((v, q) => v * 0.4 + [214, 208, 198][q] * 0.6);
+          } else if (tree) c = P.tree;
           else {
             if (tv < 0) tv = vth < 1 ? clamp((vegIndex(E, N) - vth) / 0.05, 0, 1) * clamp((0.6 - sl) / 0.1, 0, 1) : 0;
             const tr = clamp((sl - 0.45) / 0.3, 0, 1);
             const tw = clamp((wet[k] * w00 + wet[k + 1] * w10 + wet[k + nx] * w01 + wet[k + nx + 1] * w11) * 1.4, 0, 1) * (1 - tr);
             c = [0, 1, 2].map(q => ((P.ground[q] * (1 - tv) + P.veg[q] * tv) * (1 - tr) + P.rock[q] * tr) * (1 - tw) + P.wet[q] * tw);
           }
-          let lum = 0.36 + 0.86 * sh;
+          let lum = sat ? 0.62 + 0.55 * (shade3[k] * w00 + shade3[k + 1] * w10 + shade3[k + nx] * w01 + shade3[k + nx + 1] * w11) : 0.36 + 0.86 * sh;
           if (d < 400 && !tree) lum *= 0.9 + 0.2 * vnoise(E / 3.1, N / 3.1) * (1 - d / 400) + 0.1 * (d / 400);
           const t = 1 - Math.exp(-d / P.hz);
           let col = pack(
@@ -473,7 +574,7 @@ function renderView() {
             col = tint(col, 110, 62, 20, (idx ? 0.85 : 0.5) * (1 - d / 2500));
           }
           // קו רכס: כשמאחורי תוואי קרוב מופיע שטח רחוק — מודגש קו המתאר של הקרוב
-          if (lastD && ybuf < VH && d > lastD * 1.3 + 25) {
+          if (lastD && lastD < 3000 && ybuf < VH && d > lastD * 1.6 + 60) {
             const al = clamp(1 - lastD / 3500, 0.3, 0.85);
             rbuf[ybuf * VW + x] = tint(rbuf[ybuf * VW + x], 30, 34, 24, al);
             if (ybuf + 1 < VH && lastD < 1200) rbuf[(ybuf + 1) * VW + x] = tint(rbuf[(ybuf + 1) * VW + x], 30, 34, 24, al * 0.5);
@@ -1165,6 +1266,11 @@ function bindUI() {
   });
   $('optContours').addEventListener('change', e => { VIEWOPT.contours = e.target.checked; if (T && G.phase !== 'idle') renderView(); });
   $('optPeaks').addEventListener('change', e => { VIEWOPT.peaks = e.target.checked; if (T && G.phase !== 'idle') renderView(); });
+  document.querySelectorAll('[data-layer]').forEach(b => b.addEventListener('click', () => {
+    MAPOPT.layer = b.dataset.layer;
+    document.querySelectorAll('[data-layer]').forEach(x => x.classList.toggle('on', x === b));
+    if (T) { buildMapBase(); drawMap(); }
+  }));
   $('strongShade').addEventListener('change', e => { MAPOPT.strong = e.target.checked; if (T) { buildMapBase(); drawMap(); } });
   $('zoomIn').addEventListener('click', () => { MV.z *= 1.4; clampView(); drawMap(); });
   $('zoomOut').addEventListener('click', () => { MV.z /= 1.4; clampView(); drawMap(); });

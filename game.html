@@ -169,6 +169,10 @@
         <div class="g-mapinfo">
           <div id="orientOut" class="g-orient">המפה לא מוצפנת</div>
           <label class="g-lock"><input type="checkbox" id="orientLock"> נעילת הצפנה (המפה מסתובבת איתי)</label>
+          <div class="g-layers" role="group" aria-label="שכבת מפה">
+            <button class="gbtn tiny on" data-layer="topo">🗺️ מפה טופוגרפית</button>
+            <button class="gbtn tiny" data-layer="sat">🛰️ תצלום אוויר</button>
+          </div>
           <label class="g-lock"><input type="checkbox" id="strongShade"> הצללת תבליט מודגשת</label>
           <div id="cursorOut" class="small"></div>
           <div id="rulerOut" class="g-ruler"></div>
@@ -176,7 +180,14 @@
         <div class="g-legend small">
           <span><i class="lg c"></i>קו גובה (10 מ׳; מודגש כל 50 מ׳)</span>
           <span><i class="lg s"></i>ערוץ / נחל</span>
-          <span><i class="lg v"></i>חורש / צמחייה</span>
+          <span><i class="lg v"></i>חורש / יער</span>
+          <span><i class="lg f"></i>שדות</span>
+          <span><i class="lg b"></i>שטח בנוי</span>
+          <span><i class="lg rm"></i>כביש ראשי</span>
+          <span><i class="lg rs"></i>כביש משני</span>
+          <span><i class="lg rl"></i>כביש מקומי</span>
+          <span><i class="lg rt"></i>דרך עפר</span>
+          <span><i class="lg rp"></i>שביל</span>
           <span><i class="lg g"></i>רשת ישראל החדשה (1 ק״מ)</span>
           <span>▲ נקודת גובה</span>
         </div>
@@ -189,7 +200,11 @@
 </main>
 
 <footer class="site-footer">
-  הניווטיה · משחק הניווט · נתוני גובה: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">Terrain Tiles (AWS Open Data, מבוסס SRTM)</a> · לימודי בלבד, ואינו תחליף לתרגול בשטח עם מפה ומצפן אמיתיים.
+  הניווטיה · משחק הניווט · מקורות: גובה — <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">Terrain Tiles (SRTM)</a>
+  · תצלום לוויין — Contains modified <a href="https://registry.opendata.aws/sentinel-2-l2a-cogs/" target="_blank" rel="noopener">Copernicus Sentinel-2</a> data 2023–2024
+  · כיסוי קרקע — <a href="https://esa-worldcover.org/" target="_blank" rel="noopener">ESA WorldCover 2021</a> (CC BY 4.0)
+  · דרכים ויישובים — © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> דרך <a href="https://overturemaps.org/" target="_blank" rel="noopener">Overture Maps</a> (ODbL)
+  · לימודי בלבד, ואינו תחליף לתרגול בשטח עם מפה ומצפן אמיתיים.
 </footer>
 
 <script src="js/game.js"></script>

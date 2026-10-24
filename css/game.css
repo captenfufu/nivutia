@@ -158,3 +158,11 @@ html[data-theme="dark"] .g-bear b { color: #c88be0; }
 html[data-theme="dark"] .g-ruler b { color: #c88be0; }
 .g-ruler .gbtn { margin-inline-start: 6px; }
 @media (max-width: 980px) { .g-viewbar { order: 1; } }
+.g-layers { display: flex; gap: 4px; }
+.g-legend .lg.f { height: 10px; background: #f5eecc; border: 1px solid #d8cc98; }
+.g-legend .lg.b { height: 10px; background: #c4bdb6; border: 1px solid #8a837c; }
+.g-legend .lg.rm { border-top: 4px solid #d22f25; box-shadow: 0 0 0 1px #2a1a1a; }
+.g-legend .lg.rs { border-top: 3px solid #f0a04b; box-shadow: 0 0 0 1px #5a4a3a; }
+.g-legend .lg.rl { border-top: 2px solid #3a3a3a; }
+.g-legend .lg.rt { border-top: 2px dashed #3d2b19; }
+.g-legend .lg.rp { border-top: 2px dotted #4a3622; }
