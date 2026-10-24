@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>משחק הניווט — הניווטיה</title>
+<meta name="description" content="משחק הניווט של הניווטיה: מתחילים בנקודה אמיתית בארץ עם מפה טופוגרפית, דוקרים נ״צ, מחשבים אזימוט, מצפינים מפה, הולכים בשטח וסופרים צעדים — ובסוף דוקרים איפה אתם ובודקים כמה רחוק הייתם מהיעד ומהדרך האידיאלית.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='46' fill='%2333421f' stroke='%23d4a02c' stroke-width='6'/%3E%3Cpolygon points='50,16 60,54 50,46 40,54' fill='%23d4a02c'/%3E%3Cpolygon points='50,84 40,46 50,54 60,46' fill='%23efe7d0'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/game.css">
+<script>
+  (function(){try{var t=localStorage.getItem('theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
+</script>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="nav-wrap">
+    <a class="brand" href="index.html"><span class="logo">✧</span><span>הניווטיה</span></a>
+    <nav class="nav-links">
+      <a href="index.html">→ חזרה לאתר</a>
+      <a href="#" id="navSetup">🧭 ניווט חדש</a>
+    </nav>
+    <button class="theme-toggle" id="themeToggle" aria-label="החלפת מצב תצוגה" title="מצב יום / לילה">🌙</button>
+  </div>
+</header>
+
+<main class="g-main">
+
+  <!-- ============ מסך פתיחה: בחירת גזרה ורמה ============ -->
+  <section id="setupScreen" class="g-setup">
+    <div class="section-head">
+      <span class="kicker">המשחק המסכם</span>
+      <h2>🧭 משחק הניווט — מהמפה אל השטח</h2>
+      <p class="lead">אתם מוצנחים לנקודה אמיתית בארץ, עם מפה טופוגרפית של הגזרה ומצפן. על המפה מסומנת נקודת ההתחלה, ויש לכם נ״צ של נקודת יעד. מחשבים אזימוט ומרחק, מצפינים מפה ויוצאים לדרך — בלי GPS. כשאתם חושבים שהגעתם, דוקרים על המפה איפה אתם, והמשחק מראה כמה רחוק הייתם ואם הלכתם בדרך הטובה ביותר.</p>
+    </div>
+
+    <div class="g-setup-grid">
+      <div class="card">
+        <h3 class="g-h3">1. בחרו גזרה</h3>
+        <p class="small">התבליט אמיתי (נתוני גובה לוויניים, רזולוציה של כ־25 מ׳). המפה נבנית מהם: קווי גובה כל 10 מ׳, ערוצים, נקודות גובה ורשת ישראל החדשה.</p>
+        <div id="regionList" class="g-regions"><p class="small">טוען גזרות…</p></div>
+      </div>
+      <div class="card">
+        <h3 class="g-h3">2. בחרו רמה</h3>
+        <div class="g-levels" id="levelList">
+          <label class="g-level"><input type="radio" name="lvl" value="easy"><span><b>טירון</b> — היעד מסומן על המפה, נ״צ של הסמן מוצג, סרגל ומד־זווית מראים אזימוט רשת ומגנטי, ומונה המרחק במטרים.</span></label>
+          <label class="g-level"><input type="radio" name="lvl" value="mid" checked><span><b>לוחם</b> — דוקרים את היעד בעצמכם לפי הנ״צ. הסרגל מראה רק אזימוט רשת (את ההמרה למגנטי עושים לבד). סופרים צמדי צעדים, בלי מטרים.</span></label>
+          <label class="g-level"><input type="radio" name="lvl" value="hard"><span><b>מנווט מוביל</b> — בלי סרגל: מחשבים אזימוט ומרחק מהנ״צ. סופרים צעדים, ויש סטייה קטנה ובלתי מורגשת בהליכה, כמו בשטח אמיתי.</span></label>
+        </div>
+        <button class="btn g-start" id="startBtn" disabled>🧭 צאו לניווט</button>
+        <p class="small" id="bestLine"></p>
+      </div>
+    </div>
+
+    <div class="card g-how">
+      <h3 class="g-h3">איך משחקים — הנוהל</h3>
+      <ol class="g-steps">
+        <li><b>דקירת היעד:</b> מוצאים על המפה את קווי הרשת לפי ה־נ״צ (קודם מזרחית, אחר כך צפונית) ולוחצים על הנקודה.</li>
+        <li><b>חישוב אזימוט ומרחק:</b> ΔE = מזרחית יעד − מזרחית מוצא, ΔN = צפונית יעד − צפונית מוצא. אזימוט רשת = atan2(ΔE, ΔN). למצפן: <b>מגנטי = רשת − 4.9°</b>. מרחק = √(ΔE² + ΔN²).</li>
+        <li><b>הצפנת מפה:</b> מסובבים את המפה (⟲ ⟳) עד שהצפון שלה מצביע לאותו כיוון כמו מחט המצפן בשטח. אפשר לנעול את ההצפנה, והמפה תסתובב איתכם.</li>
+        <li><b>הליכה:</b> מכוונים את המצפן לאזימוט (הקלדה או סיבוב) והולכים. ב־100 מ׳ במישור יש כ־67 צמדי צעדים, ובעלייה ובירידה יותר.</li>
+        <li><b>התמצאות:</b> מצליבים בין מה שרואים (גבעות, ערוצים, אוכפים, יערות) לבין המפה. אפשר לקחת אזימוט לפסגה בולטת ולסמן ✏️ איפה אתם חושבים שאתם.</li>
+        <li><b>סיום:</b> לוחצים 🏁 "הגעתי" ודוקרים על המפה את המיקום שלכם. מקבלים ציון: מרחק מהיעד, דיוק הדקירה, ויעילות הדרך לעומת הציר האידיאלי.</li>
+      </ol>
+      <p class="small"><b>מקשים:</b> <span class="kbd">←</span> <span class="kbd">→</span> סיבוב (עם Shift: 10°) · <span class="kbd">↑</span> / <span class="kbd">W</span> הליכה רציפה · <span class="kbd">G</span> מיקוד המפה בנקודת ההתחלה.</p>
+    </div>
+  </section>
+
+  <!-- ============ מסך המשחק ============ -->
+  <section id="gameScreen" class="g-game hidden">
+
+    <div class="g-mission card">
+      <div class="g-mission-main">
+        <div><span class="g-lbl">גזרה</span><b id="mRegion">—</b> <span class="pill" id="mLevel">—</span></div>
+        <div><span class="g-lbl">נקודת מוצא ▲</span><b class="g-nz" id="mStart">—</b></div>
+        <div><span class="g-lbl">נקודת יעד ◎</span><b class="g-nz" id="mTarget">—</b> <span class="small" id="mTargetDesc"></span></div>
+      </div>
+      <div class="g-mission-side">
+        <div class="g-stat"><span class="g-lbl">זמן ניווט</span><b id="mClock">0:00</b></div>
+        <div class="g-stat"><span class="g-lbl">בדיקות GPS</span><b id="mGps">0</b></div>
+      </div>
+    </div>
+
+    <div class="g-layout">
+      <!-- השטח -->
+      <div class="g-field">
+        <div class="g-view-wrap"><canvas id="viewCv" aria-label="מבט על השטח"></canvas>
+          <div class="g-view-tag" id="viewTag">מבט בשטח</div>
+        </div>
+
+        <div class="g-ctrl card">
+          <div class="g-ctrl-row" dir="ltr">
+            <button class="gbtn" data-turn="-10" title="סיבוב 10° שמאלה">⟲ 10°</button>
+            <button class="gbtn" data-turn="-2" title="סיבוב 2° שמאלה">⟲ 2°</button>
+            <div class="g-heading"><span class="g-lbl">אזימוט מגנטי</span><b id="hdOut">000°</b></div>
+            <button class="gbtn" data-turn="2" title="סיבוב 2° ימינה">2° ⟳</button>
+            <button class="gbtn" data-turn="10" title="סיבוב 10° ימינה">10° ⟳</button>
+          </div>
+          <div class="g-ctrl-row">
+            <label class="g-az">כוון מצפן לאזימוט מגנטי:
+              <input type="number" id="azIn" min="0" max="359" step="1" inputmode="numeric" placeholder="0–359">
+            </label>
+            <button class="gbtn" id="azSet">כוון</button>
+            <button class="gbtn" data-turn="180" title="פנייה לאחור">↶ 180°</button>
+          </div>
+          <div class="g-ctrl-row g-walk">
+            <button class="gbtn walk" data-walk="10">▲ 10 צעדים</button>
+            <button class="gbtn walk" data-walk="50">▲ 50</button>
+            <button class="gbtn walk" data-walk="100">▲ 100</button>
+            <button class="gbtn walk hold" id="holdWalk">▲ הליכה רציפה (לחיצה ממושכת)</button>
+          </div>
+          <div class="g-ctrl-row g-counters">
+            <div class="g-stat"><span class="g-lbl">צמדי צעדים (מונה)</span><b id="paceOut">0</b> <button class="gbtn tiny" id="paceReset" title="איפוס המונה">איפוס</button></div>
+            <div class="g-stat" id="meterBox"><span class="g-lbl">מרחק שנהלך</span><b id="meterOut">0 מ׳</b></div>
+            <div class="g-stat"><span class="g-lbl">שיפוע לפנים</span><b id="slopeOut">—</b></div>
+          </div>
+          <div class="feedback" id="fieldMsg"></div>
+          <div class="g-ctrl-row">
+            <button class="gbtn warn" id="gpsBtn" title="מציג את מיקומכם האמיתי ל־4 שניות — מוריד ציון">🛰️ בדיקת GPS (עונש)</button>
+            <button class="gbtn go" id="arriveBtn">🏁 הגעתי — דקירת מיקום</button>
+          </div>
+        </div>
+
+        <div class="card g-check">
+          <h4>נוהל ניווט</h4>
+          <ul id="checklist">
+            <li data-k="dot">דקירת היעד על המפה</li>
+            <li data-k="az">מדידה או חישוב של אזימוט ומרחק</li>
+            <li data-k="orient">הצפנת המפה</li>
+            <li data-k="walk">יציאה לדרך עם ספירת צעדים</li>
+            <li data-k="mark">סימון מיקום משוער בדרך (✏️)</li>
+            <li data-k="final">דקירת המיקום הסופי</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- המפה -->
+      <div class="g-mapcol">
+        <div class="g-tools" id="mapTools">
+          <button class="gbtn tool on" data-tool="pan" title="גרירה והזזת המפה">✋ הזזה</button>
+          <button class="gbtn tool" data-tool="dot" id="toolDot" title="דקירת נקודת היעד לפי הנ״צ">📍 דקירת יעד</button>
+          <button class="gbtn tool" data-tool="ruler" id="toolRuler" title="סרגל ומד־זווית: שתי לחיצות">📐 סרגל</button>
+          <button class="gbtn tool" data-tool="mark" title="סימון מיקום משוער">✏️ סימון</button>
+          <button class="gbtn" id="clearMarks" title="מחיקת הסימונים והסרגל">🧹</button>
+        </div>
+        <div class="g-map-wrap" id="mapWrap">
+          <canvas id="mapCv" aria-label="מפה טופוגרפית"></canvas>
+          <div class="g-map-btns" dir="ltr">
+            <button class="gbtn" id="zoomIn" title="הגדלה">＋</button>
+            <button class="gbtn" id="zoomOut" title="הקטנה">－</button>
+            <button class="gbtn" id="rotL" title="סיבוב המפה נגד כיוון השעון">⟲</button>
+            <button class="gbtn" id="rotR" title="סיבוב המפה עם כיוון השעון">⟳</button>
+            <button class="gbtn" id="rotReset" title="צפון למעלה">צ↑</button>
+            <button class="gbtn" id="centerStart" title="מיקוד בנקודת ההתחלה">▲</button>
+          </div>
+          <div class="g-map-msg hidden" id="mapMsg"></div>
+        </div>
+        <div class="g-mapinfo">
+          <div id="orientOut" class="g-orient">המפה לא מוצפנת</div>
+          <label class="g-lock"><input type="checkbox" id="orientLock"> נעילת הצפנה (המפה מסתובבת איתי)</label>
+          <div id="cursorOut" class="small"></div>
+          <div id="rulerOut" class="g-ruler"></div>
+        </div>
+        <div class="g-legend small">
+          <span><i class="lg c"></i>קו גובה (10 מ׳; מודגש כל 50 מ׳)</span>
+          <span><i class="lg s"></i>ערוץ / נחל</span>
+          <span><i class="lg v"></i>חורש / צמחייה</span>
+          <span><i class="lg g"></i>רשת ישראל החדשה (1 ק״מ)</span>
+          <span>▲ נקודת גובה</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- תוצאות -->
+    <div class="card g-results hidden" id="results"></div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  הניווטיה · משחק הניווט · נתוני גובה: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">Terrain Tiles (AWS Open Data, מבוסס SRTM)</a> · לימודי בלבד, ואינו תחליף לתרגול בשטח עם מפה ומצפן אמיתיים.
+</footer>
+
+<script src="js/game.js"></script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+/* ===================================================================
+   הניווטיה — משחק הניווט (game.html)
+   =================================================================== */
+
+.g-main { max-width: 1400px; margin: 0 auto; padding: 18px 16px 30px; }
+a.brand { color: inherit; text-decoration: none; }
+.g-h3 { margin: 0 0 8px; color: var(--heading); font-size: 1.15rem; }
+.g-lbl { display: block; font-size: 0.72rem; color: var(--text-soft); font-weight: 600; line-height: 1.2; }
+
+/* ---------- מסך פתיחה ---------- */
+.g-setup .section-head { margin: 10px 0 18px; }
+.g-setup .section-head h2 { font-size: clamp(1.4rem, 3.2vw, 2.1rem); margin: 0 0 8px; color: var(--heading); }
+.g-setup .kicker { color: var(--accent); font-weight: 700; font-size: 0.9rem; }
+.g-setup-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 18px; align-items: start; }
+.g-setup-grid > * { min-width: 0; }
+@media (max-width: 860px) { .g-setup-grid { grid-template-columns: 1fr; } }
+.g-regions { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 10px; }
+.g-region {
+  text-align: start; font-family: inherit; cursor: pointer; padding: 12px 14px; border-radius: 10px;
+  border: 2px solid var(--border); background: var(--surface-2); color: var(--text);
+}
+.g-region b { display: block; color: var(--heading); font-size: 1rem; }
+.g-region span { font-size: 0.8rem; color: var(--text-soft); }
+.g-region.on { border-color: var(--accent); background: var(--accent-soft); }
+.g-levels { display: grid; gap: 8px; margin: 6px 0 14px; }
+.g-level {
+  display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface-2); cursor: pointer; font-size: 0.9rem;
+}
+.g-level input { margin-top: 5px; accent-color: var(--olive-600); }
+.g-level:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.g-start { width: 100%; font-size: 1.1rem; }
+.g-start:disabled { opacity: 0.5; cursor: wait; }
+.g-how { margin-top: 18px; }
+.g-steps { margin: 6px 0 10px; padding-inline-start: 22px; }
+.g-steps li { margin: 6px 0; color: var(--text-soft); }
+.g-steps b { color: var(--heading); }
+
+/* ---------- כפתורי משחק ---------- */
+.gbtn {
+  font-family: inherit; font-weight: 700; font-size: 0.9rem; cursor: pointer;
+  padding: 8px 11px; border-radius: 8px; border: 1px solid var(--khaki);
+  background: var(--surface); color: var(--heading); touch-action: manipulation;
+  user-select: none; -webkit-user-select: none;
+}
+.gbtn:hover { background: var(--surface-2); }
+.gbtn:active { transform: translateY(1px); }
+.gbtn.on { background: var(--olive-600); color: #fff; border-color: var(--olive-600); }
+.gbtn.tiny { padding: 2px 7px; font-size: 0.75rem; }
+.gbtn.walk { background: var(--olive-600); color: #fff; border-color: var(--olive-600); }
+.gbtn.walk.hold { background: var(--olive-700); }
+.gbtn.walk.active { background: var(--accent); color: var(--olive-900); }
+.gbtn.go { background: var(--accent); color: var(--olive-900); border-color: var(--accent); }
+.gbtn.warn { border-color: var(--danger); color: var(--danger); }
+.gbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---------- פס משימה ---------- */
+.g-mission { display: flex; gap: 14px; justify-content: space-between; align-items: center; flex-wrap: wrap; padding: 12px 16px; margin-bottom: 14px; }
+.g-mission-main { display: flex; gap: 22px; flex-wrap: wrap; }
+.g-mission-side { display: flex; gap: 18px; }
+.g-nz { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+.g-stat b { font-variant-numeric: tabular-nums; font-size: 1.05rem; color: var(--heading); }
+
+/* ---------- פריסת משחק ---------- */
+.g-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 16px; align-items: start; }
+@media (max-width: 980px) { .g-layout { grid-template-columns: 1fr; } }
+.g-field, .g-mapcol { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+.g-view-wrap { position: relative; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); background: #9db8cf; }
+.g-view-wrap canvas { display: block; width: 100%; aspect-ratio: 16 / 9; touch-action: none; }
+.g-view-tag { position: absolute; bottom: 8px; right: 10px; font-size: 0.75rem; font-weight: 700; color: #fff; background: rgba(20,26,12,0.55); padding: 2px 8px; border-radius: 6px; pointer-events: none; }
+
+.g-ctrl { padding: 12px 14px; display: grid; gap: 10px; }
+.g-ctrl-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.g-ctrl-row[dir="ltr"] { justify-content: center; }
+.g-heading { text-align: center; min-width: 110px; }
+.g-heading b { font-size: 1.6rem; font-variant-numeric: tabular-nums; color: var(--danger); direction: ltr; display: block; line-height: 1.1; }
+.g-az { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; font-weight: 600; color: var(--text-soft); flex: 1; }
+.g-az input { width: 90px; flex: none; padding: 6px 8px; }
+.g-walk .gbtn { flex: 1 1 auto; }
+.g-walk .hold { flex-basis: 100%; padding: 12px; }
+.g-counters { justify-content: space-between; }
+.g-counters .g-stat { background: var(--surface-2); border-radius: 8px; padding: 6px 10px; flex: 1; min-width: 120px; }
+#fieldMsg { margin: 0; min-height: 22px; font-size: 0.92rem; }
+#gpsBtn, #arriveBtn { flex: 1; }
+
+.g-check { padding: 12px 16px; }
+.g-check h4 { margin: 0 0 6px; color: var(--heading); }
+.g-check ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 0.9rem; }
+.g-check li::before { content: "☐ "; color: var(--text-soft); }
+.g-check li.done { color: #4e9a3a; font-weight: 700; }
+.g-check li.done::before { content: "☑ "; color: #4e9a3a; }
+
+/* ---------- מפה ---------- */
+.g-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.g-map-wrap { position: relative; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); background: #d8d2bf; }
+.g-map-wrap canvas { display: block; width: 100%; height: min(72vh, 680px); touch-action: none; cursor: grab; }
+.g-map-wrap canvas.crosshair { cursor: crosshair; }
+@media (max-width: 980px) { .g-map-wrap canvas { height: 92vw; max-height: 620px; } }
+.g-map-btns { position: absolute; top: 8px; left: 8px; display: flex; flex-direction: column; gap: 4px; }
+.g-map-btns .gbtn { width: 38px; height: 34px; padding: 0; background: rgba(255,255,255,0.9); color: #26301c; }
+.g-map-msg {
+  position: absolute; top: 8px; right: 8px; left: 56px; background: rgba(38,48,28,0.9); color: #efe7d0;
+  padding: 8px 12px; border-radius: 8px; font-size: 0.9rem; font-weight: 600;
+}
+.g-mapinfo { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; }
+.g-orient { font-weight: 700; color: var(--danger); font-size: 0.92rem; }
+.g-orient.ok { color: #4e9a3a; }
+.g-lock { font-size: 0.85rem; color: var(--text-soft); display: flex; gap: 6px; align-items: center; }
+.g-ruler { font-weight: 700; color: var(--heading); font-size: 0.92rem; }
+.g-legend { display: flex; gap: 6px 14px; flex-wrap: wrap; }
+.g-legend .lg { display: inline-block; width: 22px; height: 0; vertical-align: middle; margin-inline-end: 5px; }
+.g-legend .lg.c { border-top: 2px solid #a9743a; }
+.g-legend .lg.s { border-top: 2px solid #3b7fb3; }
+.g-legend .lg.g { border-top: 1px solid #2a64c8; }
+.g-legend .lg.v { height: 10px; background: #cfe3b4; border: 1px solid #9fbf7f; }
+
+/* ---------- תוצאות ---------- */
+.g-results { margin-top: 16px; }
+.g-results h3 { margin: 0 0 4px; color: var(--heading); font-size: 1.35rem; }
+.g-score { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin: 6px 0 12px; }
+.g-score .big { font-size: 2.6rem; font-weight: 800; color: var(--accent); line-height: 1; }
+.g-res-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.g-res-grid .result .val { font-size: 1.2rem; }
+.g-tips { margin: 14px 0 6px; padding-inline-start: 22px; }
+.g-tips li { margin: 5px 0; color: var(--text-soft); }
+.g-res-legend { display: flex; gap: 6px 16px; flex-wrap: wrap; margin: 6px 0 12px; font-size: 0.85rem; }
+.g-res-legend i { display: inline-block; width: 24px; height: 0; vertical-align: middle; margin-inline-end: 5px; }
+.g-res-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.btn.ghost-dark { background: transparent; color: var(--heading); border: 2px solid var(--khaki); }
+
+/* ---------- מובייל: מבט ← שליטה ← מפה ← נוהל, בלי לגלול רחוק ---------- */
+@media (max-width: 980px) {
+  .g-layout { display: flex; flex-direction: column; align-items: stretch; }
+  .g-field { display: contents; }
+  .g-view-wrap { order: 1; }
+  .g-ctrl { order: 2; }
+  .g-mapcol { order: 3; }
+  .g-check { order: 4; }
+}
+@media (max-width: 480px) {
+  .g-ctrl-row[dir="ltr"] { flex-wrap: nowrap; gap: 4px; }
+  .g-ctrl-row[dir="ltr"] .gbtn { padding: 8px 6px; font-size: 0.82rem; }
+  .g-heading { min-width: 84px; }
+  .g-heading b { font-size: 1.35rem; }
+  .g-mission-main { gap: 8px 16px; }
+}

@@ -516,3 +516,18 @@ html[data-theme="dark"] .check-chip.ok { color: #8fce7f; }
   .hero .cta-row { flex-direction: column; }
   .result-grid { grid-template-columns: 1fr; }
 }
+
+/* ---------- משחק הניווט (קישור מהאתר) ---------- */
+.btn.game-cta { background: linear-gradient(135deg, #b5482f, #d4593f); color: #fff; }
+.btn.game-cta:hover { box-shadow: 0 6px 18px rgba(181,72,47,0.5); }
+.nav-links a.nav-game { background: rgba(212,160,44,0.25); }
+.game-strip {
+  display: flex; gap: 18px; align-items: center; margin: 22px 0 0; padding: 18px 20px;
+  background: var(--surface); border: 1px solid var(--border); border-inline-start: 5px solid var(--danger);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.game-strip-ico { font-size: 2.4rem; }
+.game-strip-body { flex: 1; min-width: 0; }
+.game-strip h3 { margin: 0 0 4px; color: var(--heading); font-size: 1.2rem; }
+.game-strip p { margin: 0; color: var(--text-soft); font-size: 0.95rem; }
+@media (max-width: 640px) { .game-strip { flex-direction: column; text-align: center; } .game-strip .btn { width: 100%; } }
